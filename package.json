@@ -19,7 +19,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@remix-run/dev": "^2.9.1",
+    "@remix-run/dev": "/Users/dario/Repos/my-repos/remix/packages/remix-dev",
     "@types/react": "^18.2.20",
     "@types/react-dom": "^18.2.7",
     "@typescript-eslint/eslint-plugin": "^6.7.4",
@@ -31,7 +31,7 @@
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "typescript": "^5.1.6",
-    "vite": "^5.1.0",
+    "vite": "^6.0.0-alpha",
     "vite-tsconfig-paths": "^4.2.1"
   },
   "engines": {
