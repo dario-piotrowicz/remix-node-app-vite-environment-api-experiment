@@ -1,13 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { DevEnvironment, type ResolvedConfig } from 'vite';
-import { ModuleRunner } from 'vite/module-runner';
+import { DevEnvironment, type ResolvedConfig } from "vite";
+import { ModuleRunner } from "vite/module-runner";
 
-import { runInContext, createContext } from 'node:vm';
+import { runInContext, createContext } from "node:vm";
 
 export function viteEnvironmentPluginNode() {
   return {
-    name: 'vite-environment-plugin-node',
+    name: "vite-environment-plugin-node",
 
     async config() {
       return {
@@ -16,7 +16,7 @@ export function viteEnvironmentPluginNode() {
             dev: {
               createEnvironment(
                 name: string,
-                config: ResolvedConfig,
+                config: ResolvedConfig
               ): Promise<DevEnvironment> {
                 return createNodeVmDevEnvironment(name, config);
               },
@@ -28,60 +28,70 @@ export function viteEnvironmentPluginNode() {
   };
 }
 
-async function createNodeVmDevEnvironment(name: string, config: any): Promise<DevEnvironment> {
-    const devEnv = new DevEnvironment(name, config, { });
+async function createNodeVmDevEnvironment(
+  name: string,
+  config: any
+): Promise<DevEnvironment> {
+  const devEnv = new DevEnvironment(name, config, {});
 
-    const vmContext = createContext({
-        config,
-        console,
-        devEnv,
-        ModuleRunner,
-        Request,
-        setTimeout,
-        Response,
-      });
+  const vmContext = createContext({
+    config,
+    console: {
+      ...console,
+      log: (...args: any[]) => {
+        console.log('\nlog from node VM ========');
+        console.log(...args);
+        console.log('=========================\n');
+      }
+    },
+    devEnv,
+    ModuleRunner,
+    Request,
+    setTimeout,
+    Response,
+    URL,
+    Headers,
+  });
 
-      // TODO: the script should contain something like
-      // devEnv.dispatchRequest = ....
-      // and then we should use that in the remix plugin
-      const script = `
-        let moduleRunner = new ModuleRunner(
-            {
-              root: config.root,
-              transport: {
-                fetchModule: async (...args) => devEnv.fetchModule(...args),
-              },
-              hmr: false,
-            },
-            {
-              runInlinedModule: async (context, transformed, id) => {
-                const codeDefinition = \`'use strict';async (\${Object.keys(context).join(
-                  ',',
-                )})=>{{\`;
-                const code = \`\${codeDefinition}\${transformed}\n}}\`;
-                const fn = eval(code, id);
-                await fn(...Object.values(context));
-                Object.freeze(context.__vite_ssr_exports__);
-              },
-              async runExternalModule(filepath) {
-                return import(filepath);
-              },
-            },
-        );
-
-        devEnv.ssrLoadModule = (url) => moduleRunner.import(url);
-      `;
-
-      runInContext(
-        script,
-        vmContext,
+  const script = `
+    let moduleRunner = new ModuleRunner(
         {
-            // hack to get dynamic imports to work in node vms
-            importModuleDynamically: specifier => {
-              return import(specifier) as any;
-            },
+          root: config.root,
+          transport: {
+            fetchModule: async (...args) => devEnv.fetchModule(...args),
           },
-      );
+          hmr: false,
+        },
+        {
+          runInlinedModule: async (context, transformed, id) => {
+            const codeDefinition = \`'use strict';async (\${Object.keys(context).join(
+              ',',
+            )})=>{{\`;
+            const code = \`\${codeDefinition}\${transformed}\n}}\`;
+            const fn = eval(code, id);
+            await fn(...Object.values(context));
+            Object.freeze(context.__vite_ssr_exports__);
+          },
+          async runExternalModule(filepath) {
+            return import(filepath);
+          },
+        },
+    );
 
-      return devEnv;
+    devEnv.api = {
+      async getNodeHandler({ entrypoint }) {
+        const entry = await moduleRunner.import(entrypoint);
+        return entry.default;
+      }
+    }
+  `;
+
+  runInContext(script, vmContext, {
+    // hack to get dynamic imports to work in node vms
+    importModuleDynamically: (specifier) => {
+      return import(specifier) as any;
+    },
+  });
+
+  return devEnv;
 }
