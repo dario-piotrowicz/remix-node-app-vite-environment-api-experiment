@@ -1,5 +1,5 @@
 {
-  "name": "my-remix-app",
+  "name": "remix-node-app-vite-environment-api-experiment",
   "private": true,
   "sideEffects": false,
   "type": "module",
