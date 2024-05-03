@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { DevEnvironment, type ResolvedConfig } from "vite";
-import { ModuleRunner } from "vite/module-runner";
 
 import { runInContext, createContext } from "node:vm";
 
@@ -39,13 +38,12 @@ async function createNodeVmDevEnvironment(
     console: {
       ...console,
       log: (...args: any[]) => {
-        console.log('\nlog from node VM ========');
+        console.log("\nlog from node VM ========");
         console.log(...args);
-        console.log('=========================\n');
-      }
+        console.log("=========================\n");
+      },
     },
     devEnv,
-    ModuleRunner,
     Request,
     setTimeout,
     Response,
@@ -54,32 +52,39 @@ async function createNodeVmDevEnvironment(
   });
 
   const script = `
-    let moduleRunner = new ModuleRunner(
-        {
-          root: config.root,
-          transport: {
-            fetchModule: async (...args) => devEnv.fetchModule(...args),
+    let _moduleRunner;
+    async function getModuleRunner() {
+      if (_moduleRunner) return _moduleRunner;
+      const { ModuleRunner } = await import("vite/module-runner");
+      _moduleRunner = new ModuleRunner(
+          {
+            root: config.root,
+            transport: {
+              fetchModule: async (...args) => devEnv.fetchModule(...args),
+            },
+            hmr: false,
           },
-          hmr: false,
-        },
-        {
-          runInlinedModule: async (context, transformed, id) => {
-            const codeDefinition = \`'use strict';async (\${Object.keys(context).join(
-              ',',
-            )})=>{{\`;
-            const code = \`\${codeDefinition}\${transformed}\n}}\`;
-            const fn = eval(code, id);
-            await fn(...Object.values(context));
-            Object.freeze(context.__vite_ssr_exports__);
+          {
+            runInlinedModule: async (context, transformed, id) => {
+              const codeDefinition = \`'use strict';async (\${Object.keys(context).join(
+                ',',
+              )})=>{{\`;
+              const code = \`\${codeDefinition}\${transformed}\n}}\`;
+              const fn = eval(code, id);
+              await fn(...Object.values(context));
+              Object.freeze(context.__vite_ssr_exports__);
+            },
+            async runExternalModule(filepath) {
+              return import(filepath);
+            },
           },
-          async runExternalModule(filepath) {
-            return import(filepath);
-          },
-        },
-    );
+      );
+      return _moduleRunner;
+    }
 
     devEnv.api = {
       async getNodeHandler({ entrypoint }) {
+        const moduleRunner = await getModuleRunner();
         const entry = await moduleRunner.import(entrypoint);
         return entry.default;
       }
