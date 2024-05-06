@@ -44,3 +44,9 @@ export default function Index() {
     </div>
   );
 }
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    console.log('HMR message!');
+  });
+}
