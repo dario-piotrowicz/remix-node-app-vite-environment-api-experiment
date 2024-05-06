@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { DevEnvironment, type ResolvedConfig } from "vite";
+import { DevEnvironment, type HMRChannel, type ResolvedConfig } from "vite";
+
+import EventEmitter from "node:events";
 
 import { runInContext, createContext } from "node:vm";
 
@@ -31,7 +33,11 @@ async function createNodeVmDevEnvironment(
   name: string,
   config: any
 ): Promise<DevEnvironment> {
-  const devEnv = new DevEnvironment(name, config, {});
+  const eventEmitter = new EventEmitter();
+
+  const hot = createDummyHMRChannel(eventEmitter, name);
+
+  const devEnv = new DevEnvironment(name, config, { hot });
 
   const vmContext = createContext({
     config,
@@ -49,6 +55,7 @@ async function createNodeVmDevEnvironment(
     Response,
     URL,
     Headers,
+    eventEmitter,
   });
 
   const script = `
@@ -62,7 +69,19 @@ async function createNodeVmDevEnvironment(
             transport: {
               fetchModule: async (...args) => devEnv.fetchModule(...args),
             },
-            hmr: false,
+            hmr: {
+              connection: {
+                isReady: () => true,
+                onUpdate(callback) {
+                  eventEmitter.on("message", (event) => {
+                    callback(JSON.parse(event));
+                  });
+                },
+                send(message) {
+                  eventEmitter.emit("message",JSON.stringify(message));
+                },
+              },
+            },
           },
           {
             runInlinedModule: async (context, transformed, id) => {
@@ -99,4 +118,59 @@ async function createNodeVmDevEnvironment(
   });
 
   return devEnv;
+}
+
+function createDummyHMRChannel(
+  eventEmitter: EventEmitter,
+  name: string
+): HMRChannel {
+  let hotDispose: (() => void) | undefined;
+
+  const hotEventListenersMap = new Map<
+    string,
+    Set<(...args: any[]) => unknown>
+  >();
+
+  return {
+    name,
+    listen() {
+      const listener = (data: any) => {
+        const payload = JSON.parse(data as unknown as string);
+        for (const f of hotEventListenersMap.get(payload.event)!) {
+          f(payload.data);
+        }
+      };
+
+      eventEmitter.on("message", listener as any);
+      hotDispose = () => {
+        eventEmitter.off("message", listener as any);
+      };
+    },
+    close() {
+      hotDispose?.();
+      hotDispose = undefined;
+    },
+    on(event: string, listener: (...args: any[]) => any) {
+      if (!hotEventListenersMap.get(event)) {
+        hotEventListenersMap.set(event, new Set());
+      }
+      hotEventListenersMap.get(event)!.add(listener);
+    },
+    off(event: string, listener: (...args: any[]) => any) {
+      hotEventListenersMap.get(event)!.delete(listener);
+    },
+    send(...args: any[]) {
+      let payload: any;
+      if (typeof args[0] === "string") {
+        payload = {
+          type: "custom",
+          event: args[0],
+          data: args[1],
+        };
+      } else {
+        payload = args[0];
+      }
+      eventEmitter.emit("message", JSON.stringify(payload));
+    },
+  };
 }
